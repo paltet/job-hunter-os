@@ -9,6 +9,20 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
+  
+  app:
+    build: ./app                  # construye la imagen con tu Dockerfile
+    container_name: jobhunter-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db           # el nombre del servicio funciona como dirección
+    depends_on:
+      - db
+    ports:
+      - "127.0.0.1:8501:8501"
+    volumes:
+      - ./app:/app                # tu código se refleja dentro del contenedor
 
 volumes:
   pgdata:
