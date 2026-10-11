@@ -1,5 +1,5 @@
 import os
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import psycopg
 from psycopg.rows import dict_row
@@ -79,3 +79,71 @@ def update_status(app_id, new_status):
             "VALUES (%s, %s, %s)",
             (app_id, old, new_status),
         )
+
+def add_meeting(application_id, kind, title, scheduled_at, location_or_link):
+    # Todo en una sola transacción: la reunión y sus recordatorios se guardan
+    # juntos o no se guarda nada.
+    with get_conn() as conn:
+        meeting_id = conn.execute(
+            """INSERT INTO meetings (application_id, kind, title, scheduled_at, location_or_link)
+               VALUES (%s, %s, %s, %s, %s) RETURNING id""",
+            (application_id, kind, title, scheduled_at, location_or_link or None),
+        ).fetchone()["id"]
+
+        info = conn.execute(
+            """SELECT c.name AS company, a.job_title
+               FROM applications a JOIN companies c ON c.id = a.company_id
+               WHERE a.id = %s""",
+            (application_id,),
+        ).fetchone()
+
+        # Dos avisos automáticos: un día antes y una hora antes.
+        # Si la hora del aviso ya pasó, no se crea.
+        now = datetime.now(timezone.utc)
+        for delta, label in ((timedelta(days=1), "mañana"), (timedelta(hours=1), "en 1 hora")):
+            due_at = scheduled_at - delta
+            if due_at > now:
+                conn.execute(
+                    """INSERT INTO reminders (application_id, meeting_id, due_at, message)
+                       VALUES (%s, %s, %s, %s)""",
+                    (application_id, meeting_id, due_at,
+                     f"{info['company']} · {info['job_title']}: {title} {label}"),
+                )
+        return meeting_id
+
+
+def list_meetings(application_id):
+    with get_conn() as conn:
+        return conn.execute(
+            """SELECT id, kind, title, scheduled_at, location_or_link
+               FROM meetings WHERE application_id = %s ORDER BY scheduled_at""",
+            (application_id,),
+        ).fetchall()
+
+
+def add_note(application_id, body, meeting_id=None):
+    with get_conn() as conn:
+        if meeting_id is not None:
+            # La reunión debe pertenecer a esta candidatura
+            ok = conn.execute(
+                "SELECT 1 FROM meetings WHERE id = %s AND application_id = %s",
+                (meeting_id, application_id),
+            ).fetchone()
+            if not ok:
+                raise ValueError("La reunión no pertenece a esta candidatura")
+        conn.execute(
+            "INSERT INTO notes (application_id, meeting_id, body) VALUES (%s, %s, %s)",
+            (application_id, meeting_id, body),
+        )
+
+
+def list_notes(application_id):
+    # LEFT JOIN: las notas sin reunión también aparecen (meeting_title queda vacío)
+    with get_conn() as conn:
+        return conn.execute(
+            """SELECT n.id, n.body, n.created_at, m.title AS meeting_title
+               FROM notes n LEFT JOIN meetings m ON m.id = n.meeting_id
+               WHERE n.application_id = %s
+               ORDER BY n.created_at DESC""",
+            (application_id,),
+        ).fetchall()
