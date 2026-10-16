@@ -147,3 +147,24 @@ def list_notes(application_id):
                ORDER BY n.created_at DESC""",
             (application_id,),
         ).fetchall()
+
+def related_counts(application_id):
+    # Cuántas cosas colgadas de la candidatura se borrarían con ella.
+    # %(id)s es un parámetro con nombre: sirve para repetir el mismo valor.
+    with get_conn() as conn:
+        return conn.execute(
+            """SELECT
+                 (SELECT COUNT(*) FROM meetings       WHERE application_id = %(id)s) AS meetings,
+                 (SELECT COUNT(*) FROM notes          WHERE application_id = %(id)s) AS notes,
+                 (SELECT COUNT(*) FROM reminders      WHERE application_id = %(id)s) AS reminders,
+                 (SELECT COUNT(*) FROM status_history WHERE application_id = %(id)s) AS history""",
+            {"id": application_id},
+        ).fetchone()
+
+
+def delete_application(application_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "DELETE FROM applications WHERE id = %s RETURNING id", (application_id,)
+        ).fetchone()
+        return row is not None   # False si no existía

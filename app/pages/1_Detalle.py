@@ -17,6 +17,9 @@ KINDS = {
 st.set_page_config(page_title="Detalle · Job Hunter OS", layout="wide")
 st.title("Detalle de candidatura")
 
+if "flash" in st.session_state:
+    st.success(st.session_state.pop("flash"))
+
 apps = db.list_applications()
 if not apps:
     st.info("Aún no hay candidaturas. Crea una en la página principal.")
@@ -84,3 +87,20 @@ with col_notes:
         st.markdown(f"*{when}* · **{origin}**")
         st.markdown(n["body"])
         st.divider()
+
+# ---------- Eliminar candidatura ----------
+st.divider()
+with st.expander("Eliminar candidatura"):
+    chosen = options[choice]
+    counts = db.related_counts(app_id)
+    st.warning(
+        f"Se borrará «{chosen['company']} — {chosen['job_title']}» junto con "
+        f"{counts['meetings']} reuniones, {counts['notes']} notas, "
+        f"{counts['reminders']} recordatorios y {counts['history']} cambios de estado. "
+        "No se puede deshacer."
+    )
+    confirm = st.checkbox("Entiendo que es permanente", key=f"confirm_delete_{app_id}")
+    if st.button("Eliminar definitivamente", type="primary", disabled=not confirm):
+        db.delete_application(app_id)
+        st.session_state["flash"] = "Candidatura eliminada."
+        st.rerun()
